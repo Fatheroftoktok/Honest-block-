@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1421">
+<title>Honest Blocks</title>
+<style>
+/* Layout: one centered phone-width column. Score strip on top, 8x8 board, tray of three pieces, collapsible note on how hands are dealt. Committed dark look, so no light variant. */
+:root {
+  --bg: #0f1421;
+  --panel: #171e31;
+  --cell: #1f2842;
+  --ink: #eef1fb;
+  --muted: #8c97b8;
+  --c0: #ff6b57;
+  --c1: #ffb938;
+  --c2: #3ddc97;
+  --c3: #4db5ff;
+  --c4: #9b7bff;
+  --c5: #ff7ac6;
+  --font-display: 'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, Menlo, Consolas, monospace;
+  --r: 10%;
+  --sh: inset 0 -3px 0 rgba(0,0,0,.28), inset 0 2px 0 rgba(255,255,255,.35);
+  --bgi: none;
+  --btn-ink: #1c1503;
+  color-scheme: dark;
+}
+/* Block skins. Each one sets corner radius, bevel shadow and surface texture, so a skin class on any element restyles the blocks inside it (the picker previews use this). */
+.sk-bevel { --r: 10%; --sh: inset 0 -3px 0 rgba(0,0,0,.28), inset 0 2px 0 rgba(255,255,255,.35); --bgi: none; }
+.sk-soft { --r: 28%; --sh: inset 0 -3px 0 rgba(0,0,0,.28), inset 0 2px 0 rgba(255,255,255,.35); --bgi: none; }
+.sk-flat { --r: 8%; --sh: none; --bgi: none; }
+.sk-glossy { --r: 12%; --sh: inset 0 -3px 0 rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.6); --bgi: linear-gradient(155deg, rgba(255,255,255,.5), rgba(255,255,255,.06) 50%, rgba(0,0,0,.14)); }
+.sk-frame { --r: 10%; --sh: inset 0 0 0 3px rgba(0,0,0,.28), inset 0 0 0 5px rgba(255,255,255,.28); --bgi: none; }
+.sk-stud { --r: 12%; --sh: inset 0 -3px 0 rgba(0,0,0,.28), inset 0 2px 0 rgba(255,255,255,.3); --bgi: radial-gradient(circle at 50% 50%, rgba(255,255,255,.4) 0 26%, rgba(0,0,0,.2) 28% 34%, transparent 36%); }
+.sk-pixel { --r: 0; --sh: inset -3px -3px 0 rgba(0,0,0,.32), inset 3px 3px 0 rgba(255,255,255,.34); --bgi: none; }
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-display);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 28px;
+  -webkit-tap-highlight-color: transparent;
+}
+.app { max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+.top { display: flex; align-items: flex-end; gap: 18px; }
+.stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.stat.grow { flex: 1; }
+.label { font: 500 11px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.num { font-weight: 800; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.num.sm { font-size: 22px; letter-spacing: 0; color: var(--c1); }
+.btn {
+  font: 800 14px/1 var(--font-display);
+  background: var(--c1); color: var(--btn-ink);
+  border: 0; border-radius: 10px; padding: 12px 14px; cursor: pointer;
+  box-shadow: inset 0 -3px 0 rgba(0,0,0,.22);
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible, summary:focus-visible { outline: 3px solid var(--c3); outline-offset: 2px; }
+
+.boardwrap { position: relative; }
+.board {
+  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; padding: 6px;
+  background: var(--panel); border-radius: 16px; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.board .cell { aspect-ratio: 1; }
+.cell { background: var(--cell); border-radius: var(--r); }
+.cell.f { box-shadow: var(--sh); }
+.cell.c0 { background: var(--c0); }
+.cell.c1 { background: var(--c1); }
+.cell.c2 { background: var(--c2); }
+.cell.c3 { background: var(--c3); }
+.cell.c4 { background: var(--c4); }
+.cell.c5 { background: var(--c5); }
+.cell.f { background-image: var(--bgi); }
+.cell.ghost { opacity: .55; }
+.cell.will { filter: brightness(1.3); box-shadow: inset 0 0 0 2px rgba(255,255,255,.9) !important; }
+.cell.clearing { animation: pop .26s ease-out forwards; }
+@keyframes pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.14); filter: brightness(1.7); }
+  100% { transform: scale(0); opacity: 0; }
+}
+
+.toast {
+  position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); opacity: 0; pointer-events: none;
+  font-weight: 800; font-size: 30px; letter-spacing: -.01em; white-space: nowrap; text-shadow: 0 3px 14px rgba(0,0,0,.6);
+}
+.toast.show { animation: toast .95s ease-out; }
+@keyframes toast {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(.8); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  75% { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -85%) scale(1); }
+}
+
+.over {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center;
+  background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 16px; padding: 16px;
+}
+.over h2 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.01em; text-wrap: balance; }
+.over .big { font-size: 56px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+
+.tray {
+  position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 16px 10px;
+  background: var(--panel); border-radius: 16px; --tc: 18px;
+  touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none;
+}
+/* Invisible margin around the tray, so a grab that lands a little outside it still picks up the nearest piece. */
+.tray::before { content: ""; position: absolute; inset: -12px -8px -16px; }
+.slot {
+  display: grid; place-items: center; height: calc(var(--tc) * 5 + 8px); border-radius: 12px;
+  touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; min-width: 0;
+}
+.slot.lifted .piece { opacity: .22; }
+.piece { display: grid; }
+.piece.drag { position: fixed; left: 0; top: 0; transform-origin: 0 0; z-index: 50; pointer-events: none; will-change: transform; filter: drop-shadow(0 10px 14px rgba(0,0,0,.5)); }
+
+.note { color: var(--muted); font-size: 14px; line-height: 1.55; }
+.note summary { cursor: pointer; font-weight: 800; color: var(--ink); padding: 6px 0; }
+.note p { margin: 8px 0 0; max-width: 62ch; }
+.mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+
+.meter { display: flex; gap: 8px; align-items: stretch; }
+.streak { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: 12px; padding: 8px 12px; }
+.streak .sn { font-weight: 800; font-size: 28px; line-height: 1; min-width: 1.2ch; font-variant-numeric: tabular-nums; }
+.streak.live .sn { color: var(--c1); }
+.streak .mono { color: var(--muted); }
+.streak.bump .sn { animation: bump .4s ease-out; }
+@keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.5); } 100% { transform: scale(1); } }
+.dbl { display: flex; align-items: center; gap: 8px; background: var(--panel); border-radius: 12px; padding: 8px 10px; }
+.dbl select {
+  background: var(--cell); color: var(--ink); border: 0; border-radius: 8px; padding: 8px 6px;
+  font: 800 16px/1 var(--font-display); cursor: pointer;
+}
+.dbl select:focus-visible { outline: 3px solid var(--c3); outline-offset: 2px; }
+.rules { margin: 12px 0 0; }
+.hint { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); max-width: 52ch; }
+.streak.risk .mono { color: var(--c1); }
+.swatches { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding-top: 4px; }
+.sw { position: relative; display: block; width: 40px; height: 40px; }
+.sw input[type="color"] {
+  -webkit-appearance: none; appearance: none; width: 40px; height: 40px; padding: 0; margin: 0;
+  border: 3px solid var(--ink); border-radius: 50%; background: none; cursor: pointer; display: block;
+}
+.sw input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.sw input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.sw input[type="color"]::-moz-color-swatch { border: 0; border-radius: 50%; }
+.sw input[type="color"]:focus-visible { outline: 3px solid var(--c3); outline-offset: 2px; }
+.sw .x {
+  position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--ink); color: var(--bg); font: 800 12px/20px var(--font-display); cursor: pointer;
+}
+.addc {
+  width: 40px; height: 40px; padding: 0; border-radius: 50%; background: none; color: var(--ink);
+  border: 2px dashed var(--muted); font: 800 20px/1 var(--font-display); cursor: pointer;
+}
+.addc:focus-visible, .sw .x:focus-visible { outline: 3px solid var(--c3); outline-offset: 2px; }
+.group { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
+  border: 2px solid transparent; background: var(--panel); color: var(--ink);
+  font: 800 13px/1 var(--font-display); cursor: pointer;
+}
+.chip[aria-pressed="true"] { border-color: var(--ink); }
+.chip:focus-visible { outline: 3px solid var(--c3); outline-offset: 2px; }
+.dots { display: flex; gap: 3px; }
+.dots i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+.mini { display: flex; gap: 3px; }
+.mini .cell { width: 20px; height: 20px; display: block; }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input { flex: 1; min-width: 0; accent-color: var(--c1); }
+.range-row .mono { min-width: 3ch; text-align: right; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cell.clearing { animation-duration: .01s; }
+  .toast.show { animation-duration: .3s; }
+}
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--bg); }
+body { margin: 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+
+<main class="app">
+  <header class="top">
+    <div class="stat grow"><span class="label">Score</span><span id="score" class="num">0</span></div>
+    <div class="stat"><span class="label">Best</span><span id="best" class="num sm">0</span></div>
+    <button id="new" class="btn" type="button">New game</button>
+  </header>
+
+  <div class="meter">
+    <div id="streak" class="streak">
+      <span class="label">Streak</span>
+      <span id="streakn" class="sn">0</span>
+      <span id="streakm" class="mono">next clear x1.0</span>
+    </div>
+    <label class="dbl" for="dbl">
+      <span class="label">Points</span>
+      <select id="dbl"><option value="1">1x</option><option value="10">10x</option><option value="20">20x</option><option value="30">30x</option><option value="40">40x</option><option value="50">50x</option><option value="60">60x</option><option value="70">70x</option><option value="80">80x</option><option value="90">90x</option><option value="100">100x</option></select>
+    </label>
+  </div>
+
+  <div class="boardwrap">
+    <div id="board" class="board" aria-label="Game board, 8 by 8"></div>
+    <div id="toast" class="toast" aria-live="polite"></div>
+    <div id="over" class="over" hidden>
+      <span class="label">No room left</span>
+      <span id="final" class="big">0</span>
+      <h2>Out of moves</h2>
+      <button id="again" class="btn" type="button">Play again</button>
+    </div>
+  </div>
+
+  <div id="tray" class="tray" aria-label="Pieces to place">
+    <div class="slot" data-i="0"></div>
+    <div class="slot" data-i="1"></div>
+    <div class="slot" data-i="2"></div>
+  </div>
+
+  <details class="note">
+    <summary>Style and controls</summary>
+    <div class="group"><span class="label">Color template</span><div id="palettes" class="chips"></div></div>
+    <div class="group">
+      <span class="label">Your colors (up to 5)</span>
+      <div id="mycolors" class="swatches"></div>
+      <p class="hint">Tap + to add a color, tap a circle to change it. They become the piece colors, with lighter and darker variations filling any gaps, and the board takes a matching tint.</p>
+    </div>
+    <div class="group"><span class="label">Block skin</span><div id="skins" class="chips"></div></div>
+    <div class="group">
+      <label class="label" for="gain">Drag sensitivity</label>
+      <div class="range-row"><input id="gain" type="range" min="1" max="2.5" step="0.1" value="1.5"><span id="gainv" class="mono">1.5x</span></div>
+    </div>
+    <p class="rules">Scoring: each move earns its cells plus 10 x lines squared (and 100 for an empty board). Every clearing move in a row raises the streak, and each step adds 0.5x to the multiplier, up to 6x. The streak only resets when you place a whole hand of three pieces without clearing a single line. The Points setting multiplies the total, and the streak multiplier applies on top of it.</p>
+  </details>
+
+  <details class="note">
+    <summary>How pieces are dealt</summary>
+    <p>Before you see a hand, the game searches for an order and positions that fit all three pieces, counting any lines you clear on the way. If no such solution exists, the hand is thrown away and a new one is drawn. The draw is weighted by piece shape only. Nothing reads your score, your streak, or how long you have been playing, and there are no ads.</p>
+    <p id="stats" class="mono"></p>
+  </details>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var N = 8, LIFT = 64, KEY = 'honest-blocks-best';
+  var $ = function (id) { return document.getElementById(id); };
+  var boardEl = $('board'), trayEl = $('tray'), scoreEl = $('score'), bestEl = $('best');
+  var toastEl = $('toast'), overEl = $('over'), finalEl = $('final'), statsEl = $('stats');
+  var slots = Array.prototype.slice.call(trayEl.querySelectorAll('.slot'));
+
+  /* ---------- shapes ---------- */
+  var GROUPS = [
+    { w: 1,   c: 0, ms: [['1']] },
+    { w: 3,   c: 3, ms: [['11'], ['1', '1']] },
+    { w: 3.5, c: 1, ms: [['111'], ['1', '1', '1']] },
+    { w: 2,   c: 2, ms: [['1111'], ['1', '1', '1', '1']] },
+    { w: 0.8, c: 4, ms: [['11111'], ['1', '1', '1', '1', '1']] },
+    { w: 3,   c: 5, ms: [['11', '11']] },
+    { w: 1.2, c: 0, ms: [['111', '111', '111']] },
+    { w: 2,   c: 1, ms: [['111', '111'], ['11', '11', '11']] },
+    { w: 3,   c: 2, ms: [['10', '11'], ['01', '11'], ['11', '10'], ['11', '01']] },
+    { w: 1.6, c: 3, ms: [['100', '100', '111'], ['001', '001', '111'], ['111', '100', '100'], ['111', '001', '001']] },
+    { w: 2.6, c: 4, ms: [['111', '010'], ['010', '111'], ['10', '11', '10'], ['01', '11', '01']] },
+    { w: 2.2, c: 5, ms: [['011', '110'], ['110', '011'], ['10', '11', '01'], ['01', '11', '10']] },
+    { w: 1.6, c: 0, ms: [['10', '10', '11'], ['01', '01', '11'], ['11', '10', '10'], ['11', '01', '01'], ['111', '100'], ['111', '001'], ['100', '111'], ['001', '111']] }
+  ];
+  var SHAPES = [], BY_KEY = {};
+  GROUPS.forEach(function (gr) {
+    gr.ms.forEach(function (m) {
+      var cells = [];
+      m.forEach(function (row, r) {
+        for (var c = 0; c < row.length; c++) if (row[c] === '1') cells.push([r, c]);
+      });
+      var s = { key: m.join('/'), m: m, cells: cells, h: m.length, w: m[0].length, n: cells.length, color: gr.c, weight: gr.w / gr.ms.length };
+      SHAPES.push(s); BY_KEY[s.key] = s;
+    });
+  });
+  var SMALL = SHAPES.filter(function (s) { return s.n <= 3 || s.key === '11/11'; });
+
+  function pickFrom(pool) {
+    var t = 0, i;
+    for (i = 0; i < pool.length; i++) t += pool[i].weight;
+    var x = Math.random() * t;
+    for (i = 0; i < pool.length; i++) { x -= pool[i].weight; if (x <= 0) return pool[i]; }
+    return pool[pool.length - 1];
+  }
+
+  /* ---------- grid logic ---------- */
+  function fits(g, s, r, c) {
+    if (r < 0 || c < 0 || r + s.h > N || c + s.w > N) return false;
+    for (var i = 0; i < s.cells.length; i++) {
+      if (g[(r + s.cells[i][0]) * N + c + s.cells[i][1]]) return false;
+    }
+    return true;
+  }
+  function put(g, s, r, c, col) {
+    var o = g.slice();
+    for (var i = 0; i < s.cells.length; i++) o[(r + s.cells[i][0]) * N + c + s.cells[i][1]] = col + 1;
+    return o;
+  }
+  function clearFull(g) {
+    var rows = [], cols = [], r, c, ok;
+    for (r = 0; r < N; r++) { ok = true; for (c = 0; c < N; c++) if (!g[r * N + c]) { ok = false; break; } if (ok) rows.push(r); }
+    for (c = 0; c < N; c++) { ok = true; for (r = 0; r < N; r++) if (!g[r * N + c]) { ok = false; break; } if (ok) cols.push(c); }
+    if (!rows.length && !cols.length) return { g: g, lines: 0, rows: rows, cols: cols };
+    var o = g.slice(), i;
+    rows.forEach(function (rr) { for (i = 0; i < N; i++) o[rr * N + i] = 0; });
+    cols.forEach(function (cc) { for (i = 0; i < N; i++) o[i * N + cc] = 0; });
+    return { g: o, lines: rows.length + cols.length, rows: rows, cols: cols };
+  }
+  function anyFit(g, s) {
+    for (var r = 0; r <= N - s.h; r++) for (var c = 0; c <= N - s.w; c++) if (fits(g, s, r, c)) return true;
+    return false;
+  }
+
+  /* ---------- fair dealing ---------- */
+  function solvable(g, list, budget) {
+    if (!list.length) return true;
+    var seen = {};
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i];
+      if (seen[s.key]) continue;
+      seen[s.key] = 1;
+      var rest = list.filter(function (_, j) { return j !== i; });
+      for (var r = 0; r <= N - s.h; r++) {
+        for (var c = 0; c <= N - s.w; c++) {
+          if (!fits(g, s, r, c)) continue;
+          if (--budget.n < 0) return false;
+          if (solvable(clearFull(put(g, s, r, c, 0)).g, rest, budget)) return true;
+        }
+      }
+    }
+    return false;
+  }
+  var stats = { dealt: 0, rejected: 0, fallback: 0 };
+  function dealHand(g) {
+    stats.dealt++;
+    var t, hand;
+    for (t = 0; t < 75; t++) {
+      var pool = t < 50 ? SHAPES : SMALL;
+      hand = [pickFrom(pool), pickFrom(pool), pickFrom(pool)];
+      if (solvable(g, hand, { n: 8000 })) return hand;
+      stats.rejected++;
+    }
+    stats.fallback++;
+    var bestHand = null, bestK = -1;
+    for (t = 0; t < 25; t++) {
+      hand = [pickFrom(SMALL), pickFrom(SMALL), pickFrom(SMALL)];
+      var k = hand.filter(function (s) { return anyFit(g, s); }).length;
+      if (k > bestK) { bestK = k; bestHand = hand; }
+    }
+    return bestHand;
+  }
+
+  /* ---------- state ---------- */
+  var grid = new Uint8Array(N * N), tray = [null, null, null];
+  var score = 0, best = 0, combo = 0, handCleared = false, over = false, busy = false, drag = null, trayCell = 18;
+
+  var cells = [];
+  (function () {
+    for (var i = 0; i < N * N; i++) {
+      var d = document.createElement('div');
+      d.className = 'cell';
+      boardEl.appendChild(d);
+      cells.push(d);
+    }
+  })();
+
+  function measure() {
+    var a = cells[0].getBoundingClientRect(), b = cells[1].getBoundingClientRect();
+    var pitch = b.left - a.left;
+    return { x0: a.left, y0: a.top, pitch: pitch, cell: a.width, gap: pitch - a.width };
+  }
+  function baseClass(i) { var v = grid[i]; return 'cell' + (v ? ' f c' + (v - 1) : ''); }
+  function setClass(i, cls) { if (cells[i].className !== cls) cells[i].className = cls; }
+  function paint() { for (var i = 0; i < N * N; i++) setClass(i, baseClass(i)); }
+  function pieceEl(s, sz, gap) {
+    var p = document.createElement('div');
+    p.className = 'piece';
+    p.style.gridTemplateColumns = 'repeat(' + s.w + ',' + sz + 'px)';
+    p.style.gap = gap + 'px';
+    s.m.forEach(function (row) {
+      for (var i = 0; i < row.length; i++) {
+        var d = document.createElement('div');
+        d.style.width = d.style.height = sz + 'px';
+        if (row[i] === '1') d.className = 'cell f c' + s.color;
+        p.appendChild(d);
+      }
+    });
+    return p;
+  }
+  function sizeTray() {
+    var m = measure();
+    trayCell = Math.max(12, Math.floor(m.pitch * 0.5));
+    trayEl.style.setProperty('--tc', trayCell + 'px');
+  }
+  function renderTray() {
+    slots.forEach(function (slot, i) {
+      slot.textContent = '';
+      slot.classList.remove('lifted');
+      if (tray[i]) slot.appendChild(pieceEl(tray[i], trayCell, 2));
+    });
+  }
+  function hud() {
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+    $('streakn').textContent = combo;
+    var atRisk = combo > 0 && !handCleared;
+    $('streakm').textContent = atRisk ? 'Clear a line this hand to keep it' : 'next clear x' + streakMult(combo + 1).toFixed(1);
+    $('streak').classList.toggle('live', combo > 0);
+    $('streak').classList.toggle('risk', atRisk);
+    statsEl.textContent = 'This session: ' + stats.dealt + ' hands dealt, ' + stats.rejected + ' thrown away before you saw them' +
+      (stats.fallback ? ', ' + stats.fallback + ' with no full solution found' : '') + '.';
+  }
+  function saveBest() {
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem(KEY, String(best)); } catch (e) {}
+    }
+  }
+  function toast(text, color) {
+    toastEl.textContent = text;
+    toastEl.style.color = color;
+    toastEl.classList.remove('show');
+    void toastEl.offsetWidth;
+    toastEl.classList.add('show');
+  }
+
+  /* ---------- turn flow ---------- */
+  function dealTray() { tray = dealHand(grid); }
+  function endGame() {
+    over = true;
+    saveBest();
+    finalEl.textContent = score;
+    overEl.hidden = false;
+    hud();
+  }
+  function afterMove() {
+    if (tray.every(function (t) { return !t; })) {
+      if (!handCleared) combo = 0;
+      handCleared = false;
+      dealTray();
+    }
+    renderTray();
+    saveBest();
+    hud();
+    if (!tray.some(function (s) { return s && anyFit(grid, s); })) endGame();
+    busy = false;
+  }
+  function streakMult(n) { return n < 1 ? 1 : Math.min(6, 1 + 0.5 * (n - 1)); }
+  var NAMES = ['', 'Line', 'Double', 'Triple', 'Quad', 'Mega', 'Mega'];
+  function place(i, s, r, c) {
+    busy = true;
+    var g2 = put(grid, s, r, c, s.color);
+    var res = clearFull(g2);
+    var base = s.n, mult = 1, label = '';
+    tray[i] = null;
+    if (res.lines) {
+      combo++;
+      handCleared = true;
+      mult = streakMult(combo);
+      base += res.lines * res.lines * 10;
+      label = NAMES[Math.min(res.lines, 6)] + (combo > 1 ? ' x' + mult.toFixed(1) : '');
+      if (res.g.every(function (v) { return !v; })) { base += 100; label = 'Clean board'; }
+    }
+    var gained = Math.round(base * style.mult * mult);
+    score += gained;
+    grid = g2;
+    paint();
+    renderTray();
+    hud();
+    if (res.lines) {
+      toast(label + '  +' + gained, 'var(--c' + s.color + ')');
+      var sk = $('streak');
+      sk.classList.remove('bump');
+      void sk.offsetWidth;
+      sk.classList.add('bump');
+      res.rows.forEach(function (rr) { for (var x = 0; x < N; x++) cells[rr * N + x].classList.add('clearing'); });
+      res.cols.forEach(function (cc) { for (var y = 0; y < N; y++) cells[y * N + cc].classList.add('clearing'); });
+      setTimeout(function () { grid = res.g; paint(); afterMove(); }, 270);
+    } else {
+      afterMove();
+    }
+  }
+  function newGame() {
+    grid = new Uint8Array(N * N);
+    score = 0; combo = 0; handCleared = false; over = false; busy = false;
+    overEl.hidden = true;
+    dealTray();
+    paint(); renderTray(); hud();
+  }
+
+  /* ---------- dragging ---------- */
+  var FOLLOW = 0.55, SNAP = 1.2;
+  function sameT(a, b) { return a === b || (!!a && !!b && a.r === b.r && a.c === b.c); }
+  function showGhost(s, r, c) {
+    var res = clearFull(put(grid, s, r, c, s.color));
+    var ov = {}, will = {}, i;
+    s.cells.forEach(function (p) { ov[(r + p[0]) * N + c + p[1]] = 'cell f c' + s.color + ' ghost'; });
+    res.rows.forEach(function (rr) { for (var x = 0; x < N; x++) will[rr * N + x] = 1; });
+    res.cols.forEach(function (cc) { for (var y = 0; y < N; y++) will[y * N + cc] = 1; });
+    for (i = 0; i < N * N; i++) setClass(i, (ov[i] || baseClass(i)) + (will[i] ? ' will' : ''));
+  }
+  /* Where the piece wants to sit for a pointer position, plus the nearest legal cell within about a cell. */
+  function aim(d, x, y) {
+    var m = d.m, s = d.s;
+    var pw = s.w * m.pitch - m.gap, ph = s.h * m.pitch - m.gap;
+    var px = d.sx + (x - d.sx) * style.gain, py = d.sy + (y - d.sy) * style.gain;
+    var left = px - pw / 2, top = py - ph - LIFT;
+    var fc = (left - m.x0) / m.pitch, fr = (top - m.y0) / m.pitch;
+    var r0 = Math.round(fr), c0 = Math.round(fc), bestD = 1e9, tr = -1, tcol = -1;
+    for (var dr = -1; dr <= 1; dr++) {
+      for (var dc = -1; dc <= 1; dc++) {
+        var r = r0 + dr, c = c0 + dc;
+        if (!fits(grid, s, r, c)) continue;
+        var dd = (r - fr) * (r - fr) + (c - fc) * (c - fc);
+        if (dd < bestD) { bestD = dd; tr = r; tcol = c; }
+      }
+    }
+    return { left: left, top: top, tgt: bestD <= SNAP ? { r: tr, c: tcol } : null };
+  }
+  function tick() {
+    var d = drag;
+    if (!d) return;
+    var a = aim(d, d.px, d.py);
+    d.x += (a.left - d.x) * FOLLOW;
+    d.y += (a.top - d.y) * FOLLOW;
+    d.k += (1 - d.k) * FOLLOW;
+    d.el.style.transform = 'translate(' + d.x + 'px,' + d.y + 'px) scale(' + d.k + ')';
+    if (!sameT(a.tgt, d.tgt)) {
+      d.tgt = a.tgt;
+      if (a.tgt) showGhost(d.s, a.tgt.r, a.tgt.c); else paint();
+    }
+    d.raf = requestAnimationFrame(tick);
+  }
+  /* The whole tray, plus a margin around it, is the grab zone: the nearest piece to the finger is picked. */
+  function pickSlot(x) {
+    var best = -1, bd = 1e9, w = 0;
+    slots.forEach(function (sl, i) {
+      var r = sl.getBoundingClientRect();
+      w = r.width;
+      if (!tray[i]) return;
+      var dx = Math.abs(x - (r.left + r.width / 2));
+      if (dx < bd) { bd = dx; best = i; }
+    });
+    return bd <= w * 1.1 ? best : -1;
+  }
+  function startDrag(i, e) {
+    var s = tray[i], m = measure();
+    var el = pieceEl(s, m.cell, m.gap);
+    el.classList.add('drag');
+    document.body.appendChild(el);
+    var pr = slots[i].firstChild.getBoundingClientRect();
+    var pw = s.w * m.pitch - m.gap;
+    drag = { i: i, s: s, el: el, id: e.pointerId, m: m, tgt: null, sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, x: pr.left, y: pr.top, k: pr.width / pw, raf: 0 };
+    slots[i].classList.add('lifted');
+    el.style.transform = 'translate(' + drag.x + 'px,' + drag.y + 'px) scale(' + drag.k + ')';
+    drag.raf = requestAnimationFrame(tick);
+  }
+  function end(e, ok) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var d = drag;
+    drag = null;
+    cancelAnimationFrame(d.raf);
+    var a = ok ? aim(d, e.clientX, e.clientY) : null;
+    d.el.remove();
+    slots[d.i].classList.remove('lifted');
+    paint();
+    if (a && a.tgt) place(d.i, d.s, a.tgt.r, a.tgt.c);
+  }
+  trayEl.addEventListener('pointerdown', function (e) {
+    if (busy || over || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    var i = pickSlot(e.clientX);
+    if (i < 0) return;
+    e.preventDefault();
+    try { trayEl.setPointerCapture(e.pointerId); } catch (err) {}
+    startDrag(i, e);
+  });
+  trayEl.addEventListener('pointermove', function (e) {
+    if (drag && drag.id === e.pointerId) { drag.px = e.clientX; drag.py = e.clientY; }
+  });
+  trayEl.addEventListener('pointerup', function (e) { end(e, true); });
+  trayEl.addEventListener('pointercancel', function (e) { end(e, false); });
+  window.addEventListener('scroll', function () { if (drag) drag.m = measure(); }, { passive: true });
+
+  $('new').addEventListener('click', newGame);
+  $('again').addEventListener('click', newGame);
+  window.addEventListener('resize', function () { sizeTray(); renderTray(); });
+
+  /* ---------- style: color templates, block skins, sensitivity ---------- */
+  var STYLE_KEY = 'honest-blocks-style';
+  var VARS = ['--bg', '--panel', '--cell', '--ink', '--muted', '--c0', '--c1', '--c2', '--c3', '--c4', '--c5'];
+  var PALETTES = [
+    { id: 'classic', name: 'Classic', dark: 1, v: ['#0f1421', '#171e31', '#1f2842', '#eef1fb', '#8c97b8', '#ff6b57', '#ffb938', '#3ddc97', '#4db5ff', '#9b7bff', '#ff7ac6'] },
+    { id: 'sunset', name: 'Sunset', dark: 1, v: ['#1d1220', '#2a1a2e', '#3a2540', '#fbeef3', '#b595b8', '#ff5e5b', '#ff9f43', '#ffd166', '#ef476f', '#b56cff', '#ff8fab'] },
+    { id: 'forest', name: 'Forest', dark: 1, v: ['#0d1a17', '#14261f', '#1b3329', '#e9f6ee', '#7fa595', '#3ddc97', '#a3e635', '#facc15', '#2dd4bf', '#86efac', '#fb923c'] },
+    { id: 'ocean', name: 'Ocean', dark: 1, v: ['#0a1624', '#102338', '#17314d', '#e8f3ff', '#7c9ab8', '#4db5ff', '#22d3ee', '#818cf8', '#38bdf8', '#5eead4', '#a78bfa'] },
+    { id: 'candy', name: 'Candy', dark: 1, v: ['#1a1424', '#261c33', '#33264a', '#f6edff', '#a691c4', '#ff7ac6', '#7affd1', '#ffe27a', '#7ab8ff', '#c07aff', '#ff9a7a'] },
+    { id: 'paper', name: 'Paper', dark: 0, v: ['#eef1f6', '#dfe4ee', '#ccd3e2', '#1a2033', '#5b6685', '#e5484d', '#f5a524', '#2fb36d', '#2d7ff9', '#7c5cff', '#e2509b'] }
+  ];
+  var SKINS = [
+    { id: 'bevel', name: 'Bevel' }, { id: 'soft', name: 'Soft' }, { id: 'flat', name: 'Flat' },
+    { id: 'glossy', name: 'Glossy' }, { id: 'frame', name: 'Frame' }, { id: 'stud', name: 'Stud' }, { id: 'pixel', name: 'Pixel' }
+  ];
+  var style = { palette: 'classic', skin: 'bevel', gain: 1.5, mult: 1, colors: [] };
+
+  function loadStyle() {
+    try {
+      var o = JSON.parse(localStorage.getItem(STYLE_KEY) || 'null');
+      if (o) mergeStyle(o);
+    } catch (e) {}
+  }
+  function mergeStyle(o) {
+    if (Array.isArray(o.colors)) {
+      style.colors = o.colors.filter(function (c) { return typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c); }).slice(0, 5).map(function (c) { return c.toLowerCase(); });
+    }
+    if (o.palette === 'custom' || (o.palette && PALETTES.some(function (p) { return p.id === o.palette; }))) style.palette = o.palette;
+    if (o.skin && SKINS.some(function (s) { return s.id === o.skin; })) style.skin = o.skin;
+    if (typeof o.gain === 'number' && o.gain >= 1 && o.gain <= 2.5) style.gain = o.gain;
+    if (typeof o.mult === 'number' && o.mult >= 1 && o.mult <= 100) style.mult = o.mult < 5 ? 1 : Math.max(10, Math.min(100, Math.round(o.mult / 10) * 10));
+  }
+  function saveStyle() {
+    try { localStorage.setItem(STYLE_KEY, JSON.stringify(style)); } catch (e) {}
+  }
+  function hex2hsl(hex) {
+    var r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, h = 0, sat = 0, d = mx - mn;
+    if (d) {
+      sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return [h, sat * 100, l * 100];
+  }
+  function hsl2hex(h, sat, l) {
+    h = ((h % 360) + 360) % 360; sat /= 100; l /= 100;
+    var a = sat * Math.min(l, 1 - l);
+    function f(n) {
+      var k = (n + h / 30) % 12;
+      var c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    }
+    return '#' + f(0) + f(8) + f(4);
+  }
+  /* Up to 5 chosen colors become the 6 piece colors. Missing ones are lighter or darker variations of the
+     chosen ones, very dark picks are lifted so they stay readable, and the board takes a tint from the most
+     colorful pick. Skins shade with transparent black and white, so they follow any color. */
+  function customPalette() {
+    var src = style.colors, n = src.length, laps = Math.ceil(6 / n), blocks = [], i;
+    var step = laps > 1 ? Math.min(18, 36 / (laps - 1)) : 0;
+    var hsls = src.map(hex2hsl);
+    for (i = 0; i < 6; i++) {
+      var hsl = hsls[i % n], lap = Math.floor(i / n);
+      var lb = Math.max(44, Math.min(84, hsl[2]));
+      var l = Math.max(44, Math.min(84, lb + (lb > 64 ? -1 : 1) * step * lap));
+      blocks.push(hsl2hex(hsl[0] + lap * 6, hsl[1], l));
+    }
+    var lead = hsls.reduce(function (a, b) { return b[1] > a[1] ? b : a; });
+    var h = lead[0], sat = lead[1] > 20 ? 32 : 6;
+    return { id: 'custom', name: 'Custom', dark: 1, v: [hsl2hex(h, sat, 8), hsl2hex(h, sat, 12), hsl2hex(h, sat, 17), hsl2hex(h, Math.min(sat + 20, 50), 95), hsl2hex(h, sat, 66)].concat(blocks) };
+  }
+  function allPalettes() { return style.colors.length ? PALETTES.concat([customPalette()]) : PALETTES; }
+  function renderPalettes() {
+    var box = $('palettes');
+    box.textContent = '';
+    allPalettes().forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.dataset.id = p.id;
+      b.setAttribute('aria-pressed', String(p.id === style.palette));
+      b.style.background = p.v[1]; b.style.color = p.v[3];
+      var dots = document.createElement('span');
+      dots.className = 'dots';
+      for (var i = 5; i < 11; i++) { var d = document.createElement('i'); d.style.background = p.v[i]; dots.appendChild(d); }
+      b.appendChild(dots);
+      b.appendChild(document.createTextNode(p.name));
+      b.addEventListener('click', function () { style.palette = p.id; applyStyle(); saveStyle(); });
+      box.appendChild(b);
+    });
+  }
+  function applyStyle() {
+    if (style.palette === 'custom' && !style.colors.length) style.palette = 'classic';
+    renderPalettes();
+    var pal = allPalettes().filter(function (p) { return p.id === style.palette; })[0] || PALETTES[0];
+    var root = document.documentElement;
+    VARS.forEach(function (k, i) { root.style.setProperty(k, pal.v[i]); });
+    root.style.setProperty('--btn-ink', hex2hsl(pal.v[6])[2] > 58 ? '#16120a' : '#ffffff');
+    root.style.colorScheme = pal.dark ? 'dark' : 'light';
+    SKINS.forEach(function (s) { root.classList.remove('sk-' + s.id); });
+    root.classList.add('sk-' + style.skin);
+    Array.prototype.forEach.call($('skins').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.id === style.skin)); });
+    $('dbl').value = String(style.mult);
+    $('gain').value = style.gain;
+    $('gainv').textContent = style.gain.toFixed(1) + 'x';
+  }
+  var SEED_COLORS = ['#ff6b57', '#ffb938', '#3ddc97', '#4db5ff', '#9b7bff'];
+  function renderSwatches() {
+    var box = $('mycolors');
+    box.textContent = '';
+    style.colors.forEach(function (hex, i) {
+      var w = document.createElement('span');
+      w.className = 'sw';
+      var inp = document.createElement('input');
+      inp.type = 'color'; inp.value = hex; inp.id = 'mycolor' + i;
+      inp.setAttribute('aria-label', 'Custom color ' + (i + 1));
+      inp.addEventListener('input', function () {
+        style.colors[i] = inp.value; style.palette = 'custom'; applyStyle(); saveStyle();
+      });
+      var x = document.createElement('button');
+      x.type = 'button'; x.className = 'x'; x.textContent = 'x';
+      x.setAttribute('aria-label', 'Remove color ' + (i + 1));
+      x.addEventListener('click', function () {
+        style.colors.splice(i, 1); renderSwatches(); applyStyle(); saveStyle();
+      });
+      w.appendChild(inp); w.appendChild(x);
+      box.appendChild(w);
+    });
+    if (style.colors.length < 5) {
+      var add = document.createElement('button');
+      add.type = 'button'; add.className = 'addc'; add.textContent = '+';
+      add.setAttribute('aria-label', 'Add a color');
+      add.addEventListener('click', function () {
+        var pick = SEED_COLORS.filter(function (c) { return style.colors.indexOf(c) < 0; })[0] || SEED_COLORS[0];
+        style.colors.push(pick); style.palette = 'custom';
+        renderSwatches(); applyStyle(); saveStyle();
+      });
+      box.appendChild(add);
+    }
+  }
+  function buildStyleUI() {
+    SKINS.forEach(function (s) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip sk-' + s.id; b.dataset.id = s.id;
+      var mini = document.createElement('span');
+      mini.className = 'mini';
+      ['c0', 'c3'].forEach(function (c) { var d = document.createElement('i'); d.className = 'cell f ' + c; mini.appendChild(d); });
+      b.appendChild(mini);
+      b.appendChild(document.createTextNode(s.name));
+      b.addEventListener('click', function () { style.skin = s.id; applyStyle(); saveStyle(); });
+      $('skins').appendChild(b);
+    });
+    $('dbl').addEventListener('change', function () {
+      style.mult = parseInt($('dbl').value, 10) || 1;
+      saveStyle();
+    });
+    $('gain').addEventListener('input', function () {
+      style.gain = parseFloat($('gain').value) || 1.5;
+      $('gainv').textContent = style.gain.toFixed(1) + 'x';
+      saveStyle();
+    });
+    renderSwatches();
+  }
+
+  /* ---------- boot ---------- */
+  function start(data) {
+    try { best = parseInt(localStorage.getItem(KEY), 10) || 0; } catch (e) {}
+    loadStyle();
+    if (data && data.style) mergeStyle(data.style);
+    buildStyleUI();
+    applyStyle();
+    sizeTray();
+    var restored = false;
+    if (data && data.grid && data.grid.length === N * N && data.tray && data.tray.length === 3) {
+      grid = Uint8Array.from(data.grid);
+      tray = data.tray.map(function (k) { return k ? (BY_KEY[k] || null) : null; });
+      score = data.score | 0; combo = data.combo | 0; handCleared = !!data.handCleared; over = !!data.over;
+      if (data.stats) stats = data.stats;
+      restored = true;
+    }
+    if (!restored) dealTray();
+    paint(); renderTray(); hud();
+    if (over) { finalEl.textContent = score; overEl.hidden = false; }
+    try {
+      if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
+        window.claude.hot.snapshot(function () {
+          return { grid: Array.prototype.slice.call(grid), tray: tray.map(function (s) { return s ? s.key : null; }), score: score, combo: combo, over: over, stats: stats, style: style, handCleared: handCleared };
+        });
+      }
+    } catch (e) {}
+  }
+  var hot = window.claude && window.claude.hot;
+  if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>
+
+</body>
+</html>
